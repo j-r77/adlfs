@@ -291,3 +291,21 @@ def test_large_blob(storage):
         fs.download(path, str(local_blob))
         assert local_blob.exists()
         assert local_blob.stat().st_size == blob_size
+
+
+def test_isdir(storage):
+    fs = adlfs.AzureBlobFileSystem(
+        account_name=storage.account_name, connection_string=CONN_STR
+    )
+    assert fs.isdir("data") is True
+    assert fs.isdir("data/root") is True
+    assert fs.isdir("data/top_file.txt") is False
+
+
+def test_isfile(storage):
+    fs = adlfs.AzureBlobFileSystem(
+        account_name=storage.account_name, connection_string=CONN_STR
+    )
+    assert fs.isfile("data") is False
+    assert fs.isfile("data/root") is False
+    assert fs.isfile("data/top_file.txt") is True
