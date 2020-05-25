@@ -41,8 +41,8 @@ async def test_ls(storage):
 
     ## these are top-level directories and files
     result0 = await fs.ls("data")
-    result1 = await fs.ls("/data")
     assert result0 == ["data/root/", "data/top_file.txt"]
+    result1 = await fs.ls("/data")
     assert result1 == ["data/root/", "data/top_file.txt"]
 
     # root contains files and directories
@@ -77,7 +77,7 @@ async def test_ls(storage):
         {"name": "data/root/a/file.txt", "size": 10, "type": "file"}
     ]
 
-    ## c has two files
+    # c has two files
     result0 = await fs.ls("data/root/c", detail=True)
     assert result0 == [
         {"name": "data/root/c/file1.txt", "size": 10, "type": "file"},
@@ -105,10 +105,10 @@ async def test_info(storage):
     container_info = await fs.info("data")
     assert container_info == {"name": "data/", "type": "directory", "size": 0}
 
-#     dir_info = fs.info("data/root/c")
+#     dir_info = await fs.info("data/root/c")
 #     assert dir_info == {"name": "data/root/c/", "type": "directory", "size": 0}
 
-#     file_info = fs.info("data/root/a/file.txt")
+#     file_info = await fs.info("data/root/a/file.txt")
 #     assert file_info == {"name": "data/root/a/file.txt", "type": "file", "size": 10}
 
 
