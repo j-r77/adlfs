@@ -419,8 +419,8 @@ class AzureBlobFileSystem(AbstractFileSystem):
     async def _async_list_containers(self, client, include_metadata: bool = False):
         return client.list_containers(include_metadata=include_metadata)
     
-    async def _async_walk_blobs(self, client, name_starts_with):
-        return client.walk_blobs(name_starts_with=name_starts_with)
+    async def _async_walk_blobs(self, client, name_starts_with, delimiter):
+        return client.walk_blobs(name_starts_with=name_starts_with, delimiter=delimiter)
 
     async def info(self, path, **kwargs):
         """Give details of entry at path
@@ -439,41 +439,28 @@ class AzureBlobFileSystem(AbstractFileSystem):
         dict with keys: name (full path in the FS), size (in bytes), type (file,
         directory, or something else) and other FS-specific keys.
         """
-        path = self._strip_protocol(path)
+        print(f"in info...")
+        print(path)
         out = await self.ls(self._parent(path), detail=True, **kwargs)
-        print("*******")
-        print(out)
-        print(type(out))
-        print("*********")
-        async for o in out:
-            if o['name'].rstrip("/") == path:
-                return [o]
-            
-        # out = [o for o in out if o["name"].rstrip("/") == path]
-        # if out:
-        #     return out[0]
-        # print(f"from info {path}")
-        # out = await self.ls(path, detail=True, **kwargs)
-        # print('^^^^^')
-        # print(out)
-        # print(type(out))
-        # print('NNNN')
-        # # path = path.rstrip("/")
-        # # out1 = [o for o in out if o["name"].rstrip("/") == path]
-        # print(out)
-        # return out
-        # if len(out1) == 1:
-        #     if "size" not in out1[0]:
-        #         out1[0]["size"] = None
-        #     return out1[0]
-        # elif len(out1) > 1 or out:
-        #     return {"name": path, "size": 0, "type": "directory"}
-        # else:
-        #     raise FileNotFoundError(path)
-    
-    # async def get_pages(page):
-    #     async with 
-    
+        print(f'returned out... {out}')
+        out = [o for o in out if o["name"].rstrip("/") == path]
+        if out:
+            return out[0]
+        print(f"new run of out...")
+        out = await self.ls(path, detail=True, **kwargs)
+        print(f"Returned out again.. {out}")
+        path = path.rstrip("/")
+        out1 = [o for o in out if o["name"].rstrip("/") == path]
+        if len(out1) == 1:
+            if "size" not in out1[0]:
+                out1[0]["size"] = None
+            return out1[0]
+        elif len(out1) > 1 or out:
+            return {"name": path, "size": 0, "type": "directory"}
+        else:
+            raise FileNotFoundError(path)
+
+
     async def ls(self,
         path: str,
         detail: bool = False,
@@ -493,84 +480,91 @@ class AzureBlobFileSystem(AbstractFileSystem):
         """
 
         logging.debug(f"abfs.ls() is searching for {path}")
-        # print(f'In ls:  {path}')
+        print(f'In ls:  {path}')
         container, path = self.split_path(path)
         print(f"Container, path = {container, path}")
-        # try:
-        if (container in ["", delimiter]) and (path in ["", delimiter]):
-            # This is the case where only the containers are being returned
-            print(
-                "Returning a list of containers in the azure blob storage account"
-            )
-            if detail:
-                print("details is true...")
-                containers = self.service_client.list_containers(include_metadata=True)
-                print('Have containers...')
-                print(type(containers))
-                print(containers)
-                async for c in containers:
-                    await print(f"getting {c}")
-                    # await print(c)
-                    
-                
-                print("return containers")
-                return containers
-            else:
-                contents = await self._async_list_containers(self.service_client)
-                return [f"{c.name}{delimiter}" async for c in contents]
-
-        else:
-            
-            if container not in ["", delimiter]:
-                # This is the case where the container name is passed
-                # print('Getting container client...')
-                container_client = self.service_client.get_container_client(
-                    container=container
+        print(f"service client:  {self.service_client.account_name}")
+        print(f"credential:  {self.service_client.credential}")
+        account_info = await self.service_client.get_account_information()
+        print(f"account_info:  {account_info}")
+        try:
+            if (container in ["", delimiter]) and (path in ["", delimiter]):
+                # This is the case where only the containers are being returned
+                print(
+                    "Returning a list of containers in the azure blob storage account"
                 )
-                blobs = await self._async_walk_blobs(container_client, name_starts_with=path)
-                outblobs = []
-                print("Blobs type...")
-                print(type(blobs))
-                print(blobs)
-                try:
+                contents = await self._async_list_containers(self.service_client)
+                print('Have containers...')
+                print(type(contents))
+                print(contents)
+                if detail:
+                        outdetails = []
+                        async for c in contents:
+                            print('async for running')
+                            result = await self._details(c)
+                            outdetails.append(result)
+                        return outdetails
+                else:  
+                    return [f"{c.name}{delimiter}" async for c in contents]
+
+            elif container not in ["", delimiter] and path in ["", delimiter]:
+                if container not in ["", delimiter]:
+                    # This is the case where the container name is passed
+                    container_client = self.service_client.get_container_client(
+                        container=container
+                    )
+                    print(f"path:  {path}")
+                    if path == "":
+                        path = None
+                    blobs = await self._async_walk_blobs(container_client, name_starts_with=path, 
+                                                         delimiter=delimiter)
+                    outblobs = []
+                    print("Blobs type...")
+                    print(type(blobs))
+                    print('running blobs2')
                     print(f"Try {blobs}")
-                    async for blob in blobs:
-                        print(f'Async for... {blob}')
-                        if path == "":
-                            print("path is blank...")
-                            print(blob)
-                            if detail:
-                                result = await self._details(blob)
-                                # print(result)
-                                outblobs.append(result)
-                            else:
-                                result = f"{blob.container}{delimiter}{blob.name}"
-                                outblobs.append(result)
-                        elif (blob.name.rstrip(delimiter) == path):# and not (blob.has_key("blob_type")):
-                            # print(f"else:  {path}")
-                            results = await self._async_walk_blobs(container_client, name_starts_with=blob.name)
-                            # print('***')
-                            async for result_ in results:
+                    try:
+                        async for blob in blobs:
+                            print(f'Async for... {blob}')
+                            if path == "" or path is None:
+                                print("path is blank...")
+                                print(blob)
+                                if isinstance(blob, BlobPrefix):
+                                    print(f"This is a BlobPrefix... {blob}")
+                                else:
+                                    print(f"Not a BlobPrefix, but a {type(blob)}")
                                 if detail:
-                                    print(f"get details for:  {result_}")
-                                    result = await self._details(result_)
+                                    result = await self._details(blob)
                                     outblobs.append(result)
                                 else:
-                                    result = f"{result_.container}{delimiter}{result_.name}"
+                                    result = f"{blob.container}{delimiter}{blob.name}"
                                     outblobs.append(result)
-                    return outblobs
-                except Exception as e:
+                            elif (blob.name.rstrip(delimiter) == path):# and not (blob.has_key("blob_type")):
+                                print(f'Got elif:  {blob}')
+                                results = await self._async_walk_blobs(container_client, name_starts_with=blob.name,
+                                                                       delimiter=delimiter)
+                                async for result_ in results:
+                                    if detail:
+                                        print(f"get details for:  {result_}")
+                                        result = await self._details(result_)
+                                        outblobs.append(result)
+                                    else:
+                                        print(f"No details for {result_}")
+                                        result = f"{result_.container}{delimiter}{result_.name}"
+                                        outblobs.append(result)
+                            else:
+                                print(f"Got something else altogether... {blob}")
+                            return outblobs
+                        else:
+                            print("Got else...")
+                            return None
+
+                    except Exception as e:
+                        raise FileNotFoundError(f"Failed to find {blob}")
                     
-                    raise RuntimeError(f"Exception found as {e}")
-                    # if isinstance(blobs, BlobPrefix) and detail:
-                    #     print('This is a blobprefix...')
-                    #     print(blobs)
-                    #     if blobs['container'] == None:
-                    #         blobs['container'] = container
-                    #     return await self._details(blobs)
-                    
-        # # except Exception as e:
-        # #     raise FileNotFoundError(f"File {path} does not exist.  Failed for {e}")
+                        
+        except Exception as e:
+            raise FileNotFoundError(f"File {path} does not exist.  Failed for {e}")
 
     async def _details(self, content, delimiter="/", return_glob: bool = False, **kwargs):
         print("get details...")

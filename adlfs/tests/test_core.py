@@ -4,10 +4,18 @@ import pytest
 
 import adlfs
 
+
 URL = "http://127.0.0.1:10000"
 ACCOUNT_NAME = "devstoreaccount1"
 KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="  # NOQA
 CONN_STR = f"DefaultEndpointsProtocol=http;AccountName={ACCOUNT_NAME};AccountKey={KEY};BlobEndpoint={URL}/{ACCOUNT_NAME};"  # NOQA
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.get_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -28,7 +36,7 @@ def test_connect(storage):
     )
 
 @pytest.mark.asyncio
-async def test_ls(storage):
+async def test_ls(storage, event_loop):
     fs = adlfs.AzureBlobFileSystem(
         account_name=storage.account_name, connection_string=CONN_STR
     )
@@ -40,10 +48,10 @@ async def test_ls(storage):
     assert res == ["data/"]
 
     ## these are top-level directories and files
-    result0 = await fs.ls("data")
-    assert result0 == ["data/root/", "data/top_file.txt"]
+    # result0 = await fs.ls("data")
+    # assert result0 == ["data/root/", "data/top_file.txt"]
     result1 = await fs.ls("/data")
-    assert result1 == ["data/root/", "data/top_file.txt"]
+    assert result1 == ["data/root/", "data/top_file.txt1"]
 
     # root contains files and directories
     result0 = await fs.ls("data/root")
@@ -84,26 +92,26 @@ async def test_ls(storage):
         {"name": "data/root/c/file2.txt", "size": 10, "type": "file"},
     ]
 
-    # ## if not direct match is found throws error
-    # with pytest.raises(FileNotFoundError):
-    #     await fs.ls("not-a-container")
+    ## if not direct match is found throws error
+    with pytest.raises(FileNotFoundError):
+        await fs.ls("not-a-container")
 
-    # with pytest.raises(FileNotFoundError):
-    #     await fs.ls("data/not-a-directory/")
+    with pytest.raises(FileNotFoundError):
+        await fs.ls("data/not-a-directory/")
 
-    # with pytest.raises(FileNotFoundError):
-    #     await fs.ls("data/root/not-a-file.txt")
+    with pytest.raises(FileNotFoundError):
+        await fs.ls("data/root/not-a-file.txt")
 
 
-@pytest.mark.asyncio
-async def test_info(storage):
-    fs = adlfs.AzureBlobFileSystem(
-        account_name=storage.account_name, 
-        connection_string=CONN_STR
-    )
+# @pytest.mark.asyncio
+# async def test_info(storage, event_loop):
+#     fs = adlfs.AzureBlobFileSystem(
+#         account_name=storage.account_name, 
+#         connection_string=CONN_STR
+#     )
 
-    container_info = await fs.info("data")
-    assert container_info == {"name": "data/", "type": "directory", "size": 0}
+#     res = await fs.info("data")
+#     assert res == {"name": "data/", "type": "directory", "size": 0}
 
 #     dir_info = await fs.info("data/root/c")
 #     assert dir_info == {"name": "data/root/c/", "type": "directory", "size": 0}
