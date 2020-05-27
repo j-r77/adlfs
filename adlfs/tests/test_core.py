@@ -48,10 +48,10 @@ async def test_ls(storage, event_loop):
     assert res == ["data/"]
 
     ## these are top-level directories and files
-    # result0 = await fs.ls("data")
-    # assert result0 == ["data/root/", "data/top_file.txt"]
+    result0 = await fs.ls("data")
+    assert result0 == ["data/root/", "data/top_file.txt"]
     result1 = await fs.ls("/data")
-    assert result1 == ["data/root/", "data/top_file.txt1"]
+    assert result1 == ["data/root/", "data/top_file.txt"]
 
     # root contains files and directories
     result0 = await fs.ls("data/root")
@@ -103,15 +103,15 @@ async def test_ls(storage, event_loop):
         await fs.ls("data/root/not-a-file.txt")
 
 
-# @pytest.mark.asyncio
-# async def test_info(storage, event_loop):
-#     fs = adlfs.AzureBlobFileSystem(
-#         account_name=storage.account_name, 
-#         connection_string=CONN_STR
-#     )
+@pytest.mark.asyncio
+async def test_info(storage, event_loop):
+    fs = adlfs.AzureBlobFileSystem(
+        account_name=storage.account_name, 
+        connection_string=CONN_STR
+    )
 
-#     res = await fs.info("data")
-#     assert res == {"name": "data/", "type": "directory", "size": 0}
+    res = await fs.info("data")
+    assert res == {"name": "data/", "type": "directory", "size": 0}
 
 #     dir_info = await fs.info("data/root/c")
 #     assert dir_info == {"name": "data/root/c/", "type": "directory", "size": 0}
