@@ -113,20 +113,21 @@ async def test_info(storage, event_loop):
     res = await fs.info("data")
     assert res == {"name": "data/", "type": "directory", "size": 0}
 
-#     dir_info = await fs.info("data/root/c")
-#     assert dir_info == {"name": "data/root/c/", "type": "directory", "size": 0}
+    dir_info = await fs.info("data/root/c")
+    assert dir_info == {"name": "data/root/c/", "type": "directory", "size": 0}
 
-#     file_info = await fs.info("data/root/a/file.txt")
-#     assert file_info == {"name": "data/root/a/file.txt", "type": "file", "size": 10}
+    file_info = await fs.info("data/root/a/file.txt")
+    assert file_info == {"name": "data/root/a/file.txt", "type": "file", "size": 10}
 
+@pytest.mark.asyncio
+async def test_glob(storage, event_loop):
+    fs = adlfs.AzureBlobFileSystem(
+        account_name=storage.account_name, connection_string=CONN_STR
+    )
 
-# def test_glob(storage):
-#     fs = adlfs.AzureBlobFileSystem(
-#         account_name=storage.account_name, connection_string=CONN_STR
-#     )
-
-#     ## just the directory name
-#     assert fs.glob("data/root") == ["data/root"]
+    ## just the directory name
+    result = await fs.glob("data/root")
+    assert result == ["data/root"]
 #     ## top-level contents of a directory
 #     assert fs.glob("data/root/") == [
 #         "data/root/a",

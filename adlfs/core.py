@@ -435,8 +435,21 @@ class AzureBlobFileSystem(AbstractFileSystem):
                         result.append(blob_details)
                     else:
                         result.append(f"{blob.container}/{blob.name}")
+            if not result:
+                raise FileNotFoundError(f"File {path} was not found!!")
+            print(f"Returning from walk blobs... {result}")
             return result
-            
+
+
+    async def exists(self, path):
+        """Is there a file at the given path"""
+        try:
+            await self.info(path)
+            return True
+        except:  # noqa: E722
+            # any exception allowed bar FileNotFoundError?
+            return False
+
 
     async def info(self, path, **kwargs):
         """Give details of entry at path
@@ -457,9 +470,11 @@ class AzureBlobFileSystem(AbstractFileSystem):
         """
         print(f"in info...")
         print(path)
+        print(self._parent(path))
         out = await self.ls(self._parent(path), detail=True, **kwargs)
         print(f'returned out... {out}')
         out = [o for o in out if o["name"].rstrip("/") == path]
+        print(f"New out:  {out}")
         if out:
             return out[0]
         print(f"new run of out...")
@@ -525,7 +540,11 @@ class AzureBlobFileSystem(AbstractFileSystem):
                 blobs = await self._async_walk_blobs(container_client, name_starts_with=path)
                 result = []
                 async for blob in blobs:
-                    result.append(f"{blob.container}{delimiter}{blob.name}")
+                    if detail:
+                        r = await self._details(blob)
+                        result.append(r)
+                    else:
+                        result.append(f"{blob.container}{delimiter}{blob.name}")
                 return result
             else:
                 print("Fetch container client...")
@@ -540,7 +559,7 @@ class AzureBlobFileSystem(AbstractFileSystem):
             raise FileNotFoundError(f"File {path} does not exist.  Failed for {e}")
                     
   
-    async def _details(self, content, delimiter="/", return_glob: bool = False, **kwargs):
+    async def _details(self, content, delimiter="/", **kwargs):
         print("get details...")
         data = {}
         print(content)
@@ -561,10 +580,83 @@ class AzureBlobFileSystem(AbstractFileSystem):
             data["name"] = f"{content.name}{delimiter}"
             data["size"] = 0
             data["type"] = "directory"
-
-        if return_glob:
-            data["name"] = data["name"].rstrip("/")
         return data
+
+
+    async def glob(self, path, **kwargs):
+        """
+        Find files by glob-matching.
+        If the path ends with '/' and does not contain "*", it is essentially
+        the same as ``ls(path)``, returning only files.
+        We support ``"**"``,
+        ``"?"`` and ``"[..]"``.
+        kwargs are passed to ``ls``.
+        """
+        import re
+        from glob import has_magic
+
+        ends = path.endswith("/")
+        path = self._strip_protocol(path)
+        indstar = path.find("*") if path.find("*") >= 0 else len(path)
+        indques = path.find("?") if path.find("?") >= 0 else len(path)
+        indbrace = path.find("[") if path.find("[") >= 0 else len(path)
+
+        ind = min(indstar, indques, indbrace)
+
+        detail = kwargs.pop("detail", False)
+
+        if not has_magic(path):
+            root = path
+            depth = 1
+            if ends:
+                path += "/*"
+            elif await self.exists(path):
+                if not detail:
+                    return [path]
+                else:
+                    out = await self.info(path)
+                    return {path: out}
+            else:
+                if not detail:
+                    return []  # glob of non-existent returns empty
+                else:
+                    return {}
+        elif "/" in path[:ind]:
+            ind2 = path[:ind].rindex("/")
+            root = path[: ind2 + 1]
+            depth = 20 if "**" in path else path[ind2 + 1 :].count("/") + 1
+        else:
+            root = ""
+            depth = 20 if "**" in path else 1
+
+        allpaths = self.find(root, maxdepth=depth, withdirs=True, detail=True, **kwargs)
+        pattern = (
+            "^"
+            + (
+                path.replace("\\", r"\\")
+                .replace(".", r"\.")
+                .replace("+", r"\+")
+                .replace("//", "/")
+                .replace("(", r"\(")
+                .replace(")", r"\)")
+                .replace("|", r"\|")
+                .rstrip("/")
+                .replace("?", ".")
+            )
+            + "$"
+        )
+        pattern = re.sub("[*]{2}", "=PLACEHOLDER=", pattern)
+        pattern = re.sub("[*]", "[^/]*", pattern)
+        pattern = re.compile(pattern.replace("=PLACEHOLDER=", ".*"))
+        out = {
+            p: allpaths[p]
+            for p in sorted(allpaths)
+            if pattern.match(p.replace("//", "/").rstrip("/"))
+        }
+        if detail:
+            return out
+        else:
+            return list(out)
 
     def walk(self, path, maxdepth=None, **kwargs):
         """ Return all files belows path
