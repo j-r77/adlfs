@@ -419,7 +419,7 @@ class AzureBlobFileSystem(AbstractFileSystem):
     async def _async_list_containers(self, client, include_metadata: bool = False):
         return client.list_containers(include_metadata=include_metadata)
     
-    async def _async_walk_blobs(self, client, name_starts_with, result=None, path=None, detail: bool = False):
+    async def _async_walk_blobs(self, client, name_starts_with, result=None, path=None, glob: bool = False, detail: bool = False):
         if result is None:
             return client.walk_blobs(name_starts_with=name_starts_with)
         else:
@@ -428,10 +428,10 @@ class AzureBlobFileSystem(AbstractFileSystem):
                 print(f"blob:  {blob}")
                 if isinstance(blob, BlobPrefix) and (blob.name != path) and (blob.name == f"{path}/"):
                     await self._async_walk_blobs(client, name_starts_with=blob.name, result=result, 
-                                                path=path, detail=detail)
+                                                path=path, glob = glob, detail=detail)
                 else:
                     if detail:
-                        blob_details = await self._details(blob)
+                        blob_details = await self._details(blob, glob = glob)
                         result.append(blob_details)
                     else:
                         result.append(f"{blob.container}/{blob.name}")
@@ -451,7 +451,7 @@ class AzureBlobFileSystem(AbstractFileSystem):
             return False
 
 
-    async def info(self, path, **kwargs):
+    async def info(self, path, glob: bool = False, **kwargs):
         """Give details of entry at path
 
         Returns a single dictionary, with exactly the same information as ``ls``
@@ -471,14 +471,14 @@ class AzureBlobFileSystem(AbstractFileSystem):
         print(f"in info...")
         print(path)
         print(self._parent(path))
-        out = await self.ls(self._parent(path), detail=True, **kwargs)
+        out = await self.ls(self._parent(path), detail=True, glob = glob, **kwargs)
         print(f'returned out... {out}')
         out = [o for o in out if o["name"].rstrip("/") == path]
         print(f"New out:  {out}")
         if out:
             return out[0]
         print(f"new run of out...")
-        out = await self.ls(path, detail=True, **kwargs)
+        out = await self.ls(path, detail=True, glob = glob, **kwargs)
         print(f"Returned out again.. {out}")
         path = path.rstrip("/")
         out1 = [o for o in out if o["name"].rstrip("/") == path]
@@ -490,14 +490,67 @@ class AzureBlobFileSystem(AbstractFileSystem):
             return {"name": path, "size": 0, "type": "directory"}
         else:
             raise FileNotFoundError(path)
-        
+    
+    async def size(self, path):
+        """Size in bytes of file"""
+        result = await self.info(path).get("size", None)
+        return result
+
+    async def isdir(self, path):
+        """Is this entry directory-like?"""
+        try:
+            result = await self.info(path)
+            return result["type"] == "directory"
+        except IOError:
+            return False
+
+    async def isfile(self, path):
+        """Is this entry file-like?"""
+        try:
+            result = await self.info(path)
+            return result["type"] == "file"
+        except:  # noqa: E722
+            return False
+
+    async def find(self, path, maxdepth=None, withdirs=False, glob: bool = False, **kwargs):
+        """List all files below path.
+        Like posix ``find`` command without conditions
+        Parameters
+        ----------
+        path : str
+        maxdepth: int or None
+            If not None, the maximum number of levels to descend
+        withdirs: bool
+            Whether to include directory paths in the output. This is True
+            when used by glob, but users usually only want files.
+        kwargs are passed to ``ls``.
+        """
+        # TODO: allow equivalent of -name parameter
+        print("find...")
+        path = self._strip_protocol(path)
+        out = dict()
+        detail = kwargs.pop("detail", False)
+        async for path, dirs, files in self.walk(path, maxdepth, detail=True, glob=glob, **kwargs):
+            if withdirs:
+                files.update(dirs)
+            out.update({info["name"]: info for name, info in files.items()})
+        if await self.isfile(path) and path not in out:
+            # walk works on directories, but find should also return [path]
+            # when path happens to be a file
+            out[path] = {}
+        names = sorted(out)
+        if not detail:
+            return names
+        else:
+            return {name: out[name] for name in names}
+
         
     async def ls(self,
         path: str,
         detail: bool = False,
         invalidate_cache: bool = True,
         delimiter: str = "/",
-        return_glob: bool = False,
+        glob: bool = False,
         **kwargs,
     ):
         """
@@ -526,7 +579,7 @@ class AzureBlobFileSystem(AbstractFileSystem):
                         outdetails = []
                         async for c in contents:
                             print('async for running')
-                            result = await self._details(c)
+                            result = await self._details(c, glob = glob)
                             outdetails.append(result)
                         return outdetails
                 else:
@@ -537,11 +590,11 @@ class AzureBlobFileSystem(AbstractFileSystem):
                 container_client = self.service_client.get_container_client(
                     container=container
                 )
-                blobs = await self._async_walk_blobs(container_client, name_starts_with=path)
+                blobs = await self._async_walk_blobs(container_client, name_starts_with=path, glob=glob)
                 result = []
                 async for blob in blobs:
                     if detail:
-                        r = await self._details(blob)
+                        r = await self._details(blob, glob = glob)
                         result.append(r)
                     else:
                         result.append(f"{blob.container}{delimiter}{blob.name}")
@@ -552,14 +605,14 @@ class AzureBlobFileSystem(AbstractFileSystem):
                     container=container
                 )
                 result = []
-                blobs = await self._async_walk_blobs(container_client, name_starts_with=path, result=result, path=path, detail=detail)
+                blobs = await self._async_walk_blobs(container_client, name_starts_with=path, glob=glob, result=result, path=path, detail=detail)
                 return blobs
                     
         except Exception as e:
             raise FileNotFoundError(f"File {path} does not exist.  Failed for {e}")
                     
   
-    async def _details(self, content, delimiter="/", **kwargs):
+    async def _details(self, content, delimiter="/", glob: bool = False, **kwargs):
         print("get details...")
         data = {}
         print(content)
@@ -580,8 +633,11 @@ class AzureBlobFileSystem(AbstractFileSystem):
             data["name"] = f"{content.name}{delimiter}"
             data["size"] = 0
             data["type"] = "directory"
+        if glob:
+            print(f"Glob is true for {data}")
+            if data['type'] == "directory":
+                data["name"] = data["name"].rstrip(delimiter)
         return data
-
 
     async def glob(self, path, **kwargs):
         """
@@ -595,7 +651,9 @@ class AzureBlobFileSystem(AbstractFileSystem):
         import re
         from glob import has_magic
 
+        print("glob")
         ends = path.endswith("/")
+        print(ends)
         path = self._strip_protocol(path)
         indstar = path.find("*") if path.find("*") >= 0 else len(path)
         indques = path.find("?") if path.find("?") >= 0 else len(path)
@@ -614,7 +672,7 @@ class AzureBlobFileSystem(AbstractFileSystem):
                 if not detail:
                     return [path]
                 else:
-                    out = await self.info(path)
+                    out = await self.info(path, glob = True)
                     return {path: out}
             else:
                 if not detail:
@@ -629,7 +687,8 @@ class AzureBlobFileSystem(AbstractFileSystem):
             root = ""
             depth = 20 if "**" in path else 1
 
-        allpaths = self.find(root, maxdepth=depth, withdirs=True, detail=True, **kwargs)
+        print(f"finding {root}")
+        allpaths = await self.find(root, maxdepth=depth, withdirs=True, detail=True, glob=True, **kwargs)
         pattern = (
             "^"
             + (
@@ -658,7 +717,7 @@ class AzureBlobFileSystem(AbstractFileSystem):
         else:
             return list(out)
 
-    def walk(self, path, maxdepth=None, **kwargs):
+    async def walk(self, path, maxdepth=None, glob: bool = False, **kwargs):
         """ Return all files belows path
 
         List all files, recursing into subdirectories; output is iterator-style,
@@ -683,9 +742,9 @@ class AzureBlobFileSystem(AbstractFileSystem):
 
         detail = kwargs.pop("detail", False)
         try:
-            listing = self.ls(path, detail=True, return_glob=True, **kwargs)
+            listing = await self.ls(path, detail=True, glob=glob, **kwargs)
         except (FileNotFoundError, IOError):
-            return [], [], []
+            yield [], [], []
 
         for info in listing:
             # each info name must be at least [path]/part , but here
@@ -713,7 +772,7 @@ class AzureBlobFileSystem(AbstractFileSystem):
                 return
 
         for d in full_dirs:
-            yield from self.walk(d, maxdepth=maxdepth, detail=detail, **kwargs)
+            await self.walk(d, maxdepth=maxdepth, detail=detail, glob=glob, **kwargs)
 
     def mkdir(self, path, delimiter="/", exists_ok=False, **kwargs):
         container_name, path = self.split_path(path, delimiter=delimiter)

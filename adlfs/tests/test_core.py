@@ -128,33 +128,38 @@ async def test_glob(storage, event_loop):
     ## just the directory name
     result = await fs.glob("data/root")
     assert result == ["data/root"]
-#     ## top-level contents of a directory
-#     assert fs.glob("data/root/") == [
-#         "data/root/a",
-#         "data/root/b",
-#         "data/root/c",
-#         "data/root/rfile.txt",
-#     ]
-#     assert fs.glob("data/root/*") == [
-#         "data/root/a",
-#         "data/root/b",
-#         "data/root/c",
-#         "data/root/rfile.txt",
-#     ]
 
-#     assert fs.glob("data/root/b/*") == ["data/root/b/file.txt"]  # NOQA
+    ## top-level contents of a directory
+    result = await fs.glob("data/root/")
+    assert  result == [
+        "data/root/a",
+        "data/root/b",
+        "data/root/c",
+        "data/root/rfile.txt",
+    ]
+    result1 = await fs.glob("data/root/*")
+    assert result1 == [
+        "data/root/a",
+        "data/root/b",
+        "data/root/c",
+        "data/root/rfile.txt",
+    ]
 
-#     ## across directories
-#     assert fs.glob("data/root/*/file.txt") == [
-#         "data/root/a/file.txt",
-#         "data/root/b/file.txt",
-#     ]
+    result2 = await fs.glob("data/root/b/*") 
+    assert result2 == ["data/root/b/file.txt"]
 
-#     ## regex match
-#     assert fs.glob("data/root/*/file[0-9].txt") == [
-#         "data/root/c/file1.txt",
-#         "data/root/c/file2.txt",
-#     ]
+    ## across directories
+    result3 = await fs.glob("data/root/*/file.txt")
+    assert result3 == [
+        "data/root/a/file.txt",
+        "data/root/b/file.txt",
+    ]
+
+    # ## regex match
+    # assert fs.glob("data/root/*/file[0-9].txt") == [
+    #     "data/root/c/file1.txt",
+    #     "data/root/c/file2.txt",
+    # ]
 
 #     ## text files
 #     assert fs.glob("data/root/*/file*.txt") == [
