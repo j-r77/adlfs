@@ -36,11 +36,16 @@ class AzureDatalakeFileSystem(AbstractFileSystem):
     store_name: string (optional)
         The name of the datalake account being accessed.  Should be inferred from the urlpath
         if using with Dask read_xxx and to_xxx methods.
-
+    token:
+        An Azure DataLakeCredential object used to authenticate. The token should be
+        refreshed before its expiration. If supplied, it will override tenant_id,
+        client_id, and client_secret
     Examples
     --------
     >>> adl = AzureDatalakeFileSystem(tenant_id="xxxx", client_id="xxxx",
     ...                               client_secret="xxxx")
+
+    >>> adl = AzureDatalakeFileSystem(token=lib.auth(...))
 
     >>> adl.ls('')
 
@@ -66,12 +71,13 @@ class AzureDatalakeFileSystem(AbstractFileSystem):
 
     protocol = "adl"
 
-    def __init__(self, tenant_id, client_id, client_secret, store_name):
+    def __init__(self, tenant_id=None, client_id=None, client_secret=None, store_name=None, token=None):
         super().__init__()
         self.tenant_id = tenant_id
         self.client_id = client_id
         self.client_secret = client_secret
         self.store_name = store_name
+        self.token = token
         self.do_connect()
 
     @staticmethod
@@ -90,7 +96,7 @@ class AzureDatalakeFileSystem(AbstractFileSystem):
 
     def do_connect(self):
         """Establish connection object."""
-        token = lib.auth(
+        token = self.token or lib.auth(
             tenant_id=self.tenant_id,
             client_id=self.client_id,
             client_secret=self.client_secret,
